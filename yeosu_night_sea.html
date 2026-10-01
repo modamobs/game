@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>여수 밤바다</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:#02030a;overflow:hidden;touch-action:none;overscroll-behavior:none;
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+  color:#fff;user-select:none;-webkit-user-select:none}
+#wrap{position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;overflow:hidden;background:#050a24}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#hud{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;
+  padding:calc(12px + env(safe-area-inset-top)) 14px 0;pointer-events:none;opacity:0;transition:opacity .3s}
+#hud.show{opacity:1}
+.box{background:rgba(10,20,55,.55);border:1px solid rgba(255,255,255,.15);border-radius:14px;padding:6px 14px;min-width:92px}
+.box.right{text-align:right}
+.label{font-size:12px;color:#aab8e0;letter-spacing:.5px}
+.val{display:inline-block;font-size:24px;font-weight:800;color:#ffe680}
+.comboLine{font-size:15px;font-weight:700;color:#fff}
+#mult{display:inline-block;font-size:22px;font-weight:800;color:#7fd8ff}
+.bump{animation:bump .25s ease-out}
+@keyframes bump{0%{transform:scale(1.4)}100%{transform:scale(1)}}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:24px 20px;background:rgba(3,6,22,.6);overflow-y:auto}
+.hidden{display:none!important}
+.moonIcon{font-size:48px;margin-bottom:4px;filter:drop-shadow(0 0 14px rgba(255,230,150,.7))}
+h1,h2{font-weight:900;background:linear-gradient(#fff8d6,#ffcf5c);-webkit-background-clip:text;background-clip:text;
+  color:transparent;filter:drop-shadow(0 0 12px rgba(255,210,100,.45))}
+h1{font-size:46px;letter-spacing:2px}
+h2{font-size:42px}
+.sub{margin:8px 0 18px;color:#c9d4ff;font-size:16px}
+.card{width:100%;max-width:340px;background:rgba(15,28,75,.6);border:1px solid rgba(255,255,255,.14);
+  border-radius:16px;padding:12px 16px;margin-bottom:12px;text-align:left}
+.card p{font-size:14px;line-height:1.85;color:#e6ebff}
+.card b{color:#ffe680}
+.card.ctrl p{color:#bfe9ff}
+.result{text-align:center}
+.big{font-size:52px;font-weight:900;color:#ffe680;margin:2px 0 6px}
+.row{font-size:16px;color:#e6ebff}
+.row b{color:#7fd8ff}
+button{margin-top:8px;font-family:inherit;font-size:20px;font-weight:800;color:#1a1530;border:none;border-radius:999px;
+  padding:14px 46px;background:linear-gradient(#fff3b0,#ffc94a);box-shadow:0 0 24px rgba(255,200,80,.5),0 4px 0 #c08a1e;
+  cursor:pointer;touch-action:manipulation}
+button:active{transform:translateY(3px);box-shadow:0 0 18px rgba(255,200,80,.4),0 1px 0 #c08a1e}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="box">
+      <div class="label">점수</div>
+      <div class="val" id="score">0</div>
+    </div>
+    <div class="box right">
+      <div class="comboLine"><span id="combo">0</span> 콤보</div>
+      <div><span class="label">배율 </span><span id="mult">×1</span></div>
+    </div>
+  </div>
+
+  <div id="startScreen" class="overlay">
+    <div class="moonIcon">🌙</div>
+    <h1>여수 밤바다</h1>
+    <p class="sub">배를 움직여 별을 받는 게임</p>
+    <div class="card">
+      <p>⭐ 별 1개 = <b>10점</b></p>
+      <p>🔥 연속으로 받으면 콤보! <b>5콤보마다 배율 +1</b></p>
+      <p>💧 별을 놓치면 콤보가 끊겨요</p>
+      <p>☄️ 운석에 맞으면 <b>게임 오버</b></p>
+      <p>⏱️ 시간이 지날수록 점점 빨리 떨어져요</p>
+    </div>
+    <div class="card ctrl">
+      <p>📱 폰: 화면을 터치한 채 좌우로 움직이기</p>
+      <p>💻 PC: ← → 방향키(A / D) 또는 마우스</p>
+    </div>
+    <button id="startBtn">게임 시작</button>
+  </div>
+
+  <div id="overScreen" class="overlay hidden">
+    <h2>게임 오버</h2>
+    <p class="sub">운석에 부딪혔어요 ☄️</p>
+    <div class="card result">
+      <div class="label">최종 점수</div>
+      <div class="big" id="finalScore">0</div>
+      <div class="row">최대 콤보 <b id="finalCombo">0</b></div>
+    </div>
+    <button id="retryBtn">다시 하기</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const wrap = $('wrap'), cv = $('game'), ctx = cv.getContext('2d');
+  const hud = $('hud'), scoreEl = $('score'), comboEl = $('combo'), multEl = $('mult');
+  const startScreen = $('startScreen'), overScreen = $('overScreen');
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const rand = (a, b) => a + Math.random() * (b - a);
+  const TAU = Math.PI * 2;
+  const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  const FONT = '-apple-system,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif';
+
+  let W = 0, H = 0, S = 40, seaY = 0, t = 0;
+  let bgStars = [], lights = [];
+  const boat = { x: 0, y: 0 };
+
+  let state = 'start';            // start | play | dying | over
+  let items = [], parts = [], pops = [], banner = null;
+  let score = 0, combo = 0, mult = 1, maxCombo = 0;
+  let elapsed = 0, spawnT = 0, dieT = 0, shake = 0, flash = 0;
+  const keys = { left: false, right: false };
+  let targetX = null, pointerDown = false;
+
+  // ---------- 화면 크기 ----------
+  function resize() {
+    const r = wrap.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const oldW = W || r.width;
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    S = clamp(Math.min(W, H) * 0.11, 32, 56);
+    seaY = H * 0.7;
+    boat.y = H * 0.86;
+    boat.x = boat.x ? clamp(boat.x * W / oldW, S * 0.6, W - S * 0.6) : W / 2;
+
+    bgStars = [];
+    const n = Math.round(W * seaY / 2200);
+    for (let i = 0; i < n; i++) {
+      bgStars.push({ x: Math.random() * W, y: Math.random() * seaY * 0.93,
+        r: rand(0.4, 1.6), p: rand(0, TAU), s: rand(1, 3) });
+    }
+    lights = [];
+    for (let x = 3; x < W; x += rand(5, 13)) {
+      const c = Math.random() < 0.6 ? '#ffd27a' : (Math.random() < 0.5 ? '#ff9a6b' : '#9fe3ff');
+      lights.push({ x, f: rand(0.15, 0.85), c, p: rand(0, TAU), refl: Math.random() < 0.35 });
+    }
+  }
+  const landH = x => (7 + 5 * Math.sin(x * 0.018) + 4 * Math.sin(x * 0.051 + 1.3)) * H / 700;
+
+  // ---------- 배경: 밤하늘, 달, 별, 밤바다 ----------
+  function drawBg() {
+    let g = ctx.createLinearGradient(0, 0, 0, seaY);
+    g.addColorStop(0, '#040820'); g.addColorStop(0.6, '#0d1a45'); g.addColorStop(1, '#22306a');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, seaY);
+
+    ctx.fillStyle = '#fff';
+    for (const s of bgStars) {
+      ctx.globalAlpha = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(t * s.s + s.p));
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // 달
+    const mx = W * 0.76, my = H * 0.13, mr = S * 0.85;
+    const mg = ctx.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 3.4);
+    mg.addColorStop(0, 'rgba(255,240,190,0.35)'); mg.addColorStop(1, 'rgba(255,240,190,0)');
+    ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr * 3.4, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#fff3c4'; ctx.beginPath(); ctx.arc(mx, my, mr, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(214,194,135,0.45)';
+    [[-0.3, -0.2, 0.18], [0.25, 0.18, 0.22], [-0.12, 0.42, 0.12], [0.36, -0.36, 0.1]].forEach(c => {
+      ctx.beginPath(); ctx.arc(mx + c[0] * mr, my + c[1] * mr, c[2] * mr, 0, TAU); ctx.fill();
+    });
+
+    // 먼 육지와 불빛
+    ctx.fillStyle = '#060a1c'; ctx.beginPath(); ctx.moveTo(0, seaY);
+    for (let x = 0; x <= W; x += 6) ctx.lineTo(x, seaY - landH(x));
+    ctx.lineTo(W, seaY); ctx.closePath(); ctx.fill();
+    for (const l of lights) {
+      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 2 + l.p);
+      ctx.fillStyle = l.c; ctx.fillRect(l.x, seaY - landH(l.x) * l.f, 1.8, 1.8);
+    }
+    ctx.globalAlpha = 1;
+
+    // 바다
+    g = ctx.createLinearGradient(0, seaY, 0, H);
+    g.addColorStop(0, '#16235e'); g.addColorStop(1, '#030616');
+    ctx.fillStyle = g; ctx.fillRect(0, seaY, W, H - seaY);
+
+    // 불빛 반사
+    for (const l of lights) {
+      if (!l.refl) continue;
+      ctx.globalAlpha = 0.18 + 0.12 * Math.sin(t * 3 + l.p);
+      ctx.fillStyle = l.c;
+      ctx.fillRect(l.x + Math.sin(t * 2 + l.p) * 1.5, seaY + 2, 1.5, 10 + 8 * l.f);
+    }
+    // 달빛 반사
+    const rows = 14;
+    for (let i = 0; i < rows; i++) {
+      const y = seaY + 4 + i * (H - seaY) / rows;
+      const w = mr * (1.4 - i * 0.06) * (0.7 + 0.3 * Math.sin(t * 2 + i));
+      const off = Math.sin(t * 1.5 + i * 0.9) * 6;
+      ctx.globalAlpha = 0.5 - i * 0.03;
+      ctx.fillStyle = '#ffe9a8';
+      ctx.fillRect(mx - w / 2 + off, y, w, 2);
+    }
+    ctx.globalAlpha = 1;
+
+    // 물결
+    ctx.strokeStyle = 'rgba(140,170,255,0.13)'; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 6; k++) {
+      const y0 = seaY + 12 + k * (H - seaY) / 6;
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += 8) {
+        const y = y0 + Math.sin(x * 0.03 + t * (1 + k * 0.2) + k) * 3;
+        x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // ---------- 별 / 운석 / 배 ----------
+  function starPath(x, y, r, rot) {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const rr = i % 2 ? r * 0.45 : r;
+      const a = rot + i * Math.PI / 5 - Math.PI / 2;
+      ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+  }
+  function drawStar(it) {
+    ctx.save();
+    ctx.shadowColor = '#ffe066'; ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ffd84a'; starPath(it.x, it.y, it.r, it.rot); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff8c8'; starPath(it.x, it.y, it.r * 0.45, it.rot); ctx.fill();
+    ctx.restore();
+  }
+  function drawMeteor(it) {
+    const { x, y, r } = it, len = r * 4.2;
+    ctx.save();
+    const g = ctx.createLinearGradient(x, y, x, y - len);
+    g.addColorStop(0, 'rgba(255,150,50,0.95)');
+    g.addColorStop(0.45, 'rgba(255,70,30,0.45)');
+    g.addColorStop(1, 'rgba(255,60,30,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(x - r * 0.95, y);
+    ctx.quadraticCurveTo(x, y - len * 1.15, x + r * 0.95, y); ctx.closePath(); ctx.fill();
+
+    ctx.shadowColor = '#ff5a1f'; ctx.shadowBlur = 22;
+    ctx.fillStyle = '#6e4b3b'; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#47302a';
+    [[0.35, -0.2, 0.25], [-0.35, 0.25, 0.2], [0.1, 0.45, 0.14]].forEach(c => {
+      const a = Math.atan2(c[1], c[0]) + it.rot, d = Math.hypot(c[0], c[1]) * r;
+      ctx.beginPath(); ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, c[2] * r, 0, TAU); ctx.fill();
+    });
+    ctx.strokeStyle = 'rgba(255,140,60,0.9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+  function drawBoat() {
+    const bob = Math.sin(t * 2.2) * 3;
+    ctx.fillStyle = 'rgba(255,225,150,0.13)';
+    ctx.beginPath(); ctx.ellipse(boat.x, boat.y + S * 0.6, S * 0.95, S * 0.18, 0, 0, TAU); ctx.fill();
+    ctx.font = `${S * 1.4}px ${EMOJI}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('⛵', boat.x, boat.y + bob);
+  }
+
+  // ---------- 게임 로직 ----------
+  const fallSpeed = () => H * Math.min(0.32 + elapsed * 0.011, 1.15);
+
+  function spawn() {
+    const isMeteor = elapsed > 1.5 && Math.random() < 0.3;
+    items.push({
+      type: isMeteor ? 'meteor' : 'star',
+      x: rand(S * 0.6, W - S * 0.6), y: -S,
+      r: isMeteor ? S * 0.36 : S * 0.38,
+      rot: rand(0, TAU), vr: rand(-2, 2), f: rand(0.9, 1.15)
+    });
+  }
+
+  function hit(it) {
+    const k = it.type === 'meteor' ? 0.8 : 1;
+    const dx = Math.abs(it.x - boat.x);
+    const dy = Math.abs(it.y - (boat.y - S * 0.15));
+    return dx < (S * 0.6 + it.r * 0.5) * k && dy < (S * 0.55 + it.r * 0.5) * k;
+  }
+
+  function catchStar(it) {
+    combo++;
+    maxCombo = Math.max(maxCombo, combo);
+    const newMult = 1 + Math.floor(combo / 5);
+    if (newMult > mult) banner = { text: `배율 ×${newMult}!`, life: 1.2 };
+    mult = newMult;
+    const gain = 10 * mult;
+    score += gain;
+    pops.push({ x: it.x, y: it.y - S * 0.4, text: `+${gain}`, color: '#ffe680', life: 0.9 });
+    for (let i = 0; i < 12; i++) {
+      const a = rand(0, TAU), v = rand(60, 200);
+      parts.push({ x: it.x, y: it.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: 200,
+        life: rand(0.4, 0.8), max: 0.8, size: rand(1.5, 3.5),
+        color: ['#ffe066', '#ffffff', '#9fe3ff'][i % 3] });
+    }
+    updateHud();
+  }
+
+  function breakCombo() {
+    if (combo === 0) return;
+    combo = 0; mult = 1;
+    pops.push({ x: boat.x, y: boat.y - S, text: '콤보 끊김', color: '#ff9a9a', life: 0.9 });
+    updateHud();
+  }
+
+  function die() {
+    state = 'dying'; dieT = 0.9; shake = 1; flash = 1;
+    for (let i = 0; i < 36; i++) {
+      const a = rand(0, TAU), v = rand(80, 320);
+      parts.push({ x: boat.x, y: boat.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 80, g: 420,
+        life: rand(0.5, 1), max: 1, size: rand(2, 5),
+        color: ['#ff5a1f', '#ffb347', '#ffe066', '#ff2e2e'][i % 4] });
+    }
+  }
+
+  function gameOver() {
+    state = 'over';
+    hud.classList.remove('show');
+    $('finalScore').textContent = score;
+    $('finalCombo').textContent = maxCombo;
+    overScreen.classList.remove('hidden');
+  }
+
+  function startGame() {
+    items = []; parts = []; pops = []; banner = null;
+    score = 0; combo = 0; mult = 1; maxCombo = 0;
+    elapsed = 0; spawnT = 0.4; shake = 0; flash = 0;
+    boat.x = W / 2; targetX = null;
+    keys.left = keys.right = false;
+    startScreen.classList.add('hidden');
+    overScreen.classList.add('hidden');
+    hud.classList.add('show');
+    updateHud();
+    state = 'play';
+  }
+
+  let lastHud = { s: -1, c: -1, m: -1 };
+  function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+  function updateHud() {
+    if (score !== lastHud.s) { scoreEl.textContent = score; bump(scoreEl); }
+    if (combo !== lastHud.c) comboEl.textContent = combo;
+    if (mult !== lastHud.m) { multEl.textContent = '×' + mult; bump(multEl); }
+    lastHud = { s: score, c: combo, m: mult };
+  }
+
+  function update(dt) {
+    t += dt;
+    if (state === 'play') {
+      elapsed += dt;
+      const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+      if (dir) boat.x += dir * W * 1.25 * dt;
+      else if (targetX !== null) boat.x += (targetX - boat.x) * Math.min(1, dt * 15);
+      boat.x = clamp(boat.x, S * 0.6, W - S * 0.6);
+
+      spawnT -= dt;
+      if (spawnT <= 0) { spawnT = 0.65; spawn(); }
+
+      const spd = fallSpeed();
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        it.y += spd * it.f * dt;
+        it.rot += it.vr * dt;
+        if (hit(it)) {
+          items.splice(i, 1);
+          if (it.type === 'star') catchStar(it);
+          else { die(); break; }
+          continue;
+        }
+        if (it.y - it.r > boat.y + S * 0.8) {
+          items.splice(i, 1);
+          if (it.type === 'star') breakCombo();
+        }
+      }
+    } else if (state === 'dying') {
+      dieT -= dt;
+      if (dieT <= 0) gameOver();
+    }
+
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += p.g * dt; p.life -= dt;
+      if (p.life <= 0) parts.splice(i, 1);
+    }
+    for (let i = pops.length - 1; i >= 0; i--) {
+      const p = pops[i]; p.y -= 45 * dt; p.life -= dt;
+      if (p.life <= 0) pops.splice(i, 1);
+    }
+    if (banner) { banner.life -= dt; if (banner.life <= 0) banner = null; }
+    shake = Math.max(0, shake - dt * 1.5);
+    flash = Math.max(0, flash - dt * 2);
+  }
+
+  function draw() {
+    ctx.save();
+    if (shake > 0) ctx.translate(rand(-1, 1) * shake * 10, rand(-1, 1) * shake * 10);
+    drawBg();
+    for (const it of items) it.type === 'star' ? drawStar(it) : drawMeteor(it);
+
+    if (state === 'start' || state === 'play') drawBoat();
+    else if (state === 'dying') {
+      ctx.globalAlpha = Math.max(0, dieT / 0.9);
+      ctx.font = `${S * 1.6 * (1 + (0.9 - dieT))}px ${EMOJI}`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('💥', boat.x, boat.y);
+      ctx.globalAlpha = 1;
+    }
+
+    for (const p of parts) {
+      ctx.globalAlpha = Math.max(0, p.life / p.max);
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const p of pops) {
+      ctx.globalAlpha = Math.max(0, p.life / 0.9);
+      ctx.font = `800 ${S * 0.5}px ${FONT}`;
+      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(5,10,35,0.8)';
+      ctx.strokeText(p.text, p.x, p.y);
+      ctx.fillStyle = p.color; ctx.fillText(p.text, p.x, p.y);
+    }
+    ctx.globalAlpha = 1;
+
+    if (banner) {
+      const p = 1 - banner.life / 1.2;
+      const sc = 1 + 0.4 * Math.max(0, 1 - p * 6);
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, banner.life / 0.4);
+      ctx.translate(W / 2, H * 0.36); ctx.scale(sc, sc);
+      ctx.font = `900 ${S * 0.8}px ${FONT}`;
+      ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(5,10,35,0.85)';
+      ctx.strokeText(banner.text, 0, 0);
+      ctx.shadowColor = '#7fd8ff'; ctx.shadowBlur = 16;
+      ctx.fillStyle = '#9fe3ff'; ctx.fillText(banner.text, 0, 0);
+      ctx.restore();
+    }
+    ctx.restore();
+
+    if (flash > 0) { ctx.fillStyle = `rgba(255,80,40,${flash * 0.4})`; ctx.fillRect(0, 0, W, H); }
+  }
+
+  // ---------- 조작 ----------
+  window.addEventListener('keydown', e => {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') { keys.left = true; targetX = null; e.preventDefault(); }
+    else if (e.code === 'ArrowRight' || e.code === 'KeyD') { keys.right = true; targetX = null; e.preventDefault(); }
+    else if ((e.code === 'Space' || e.code === 'Enter') && (state === 'start' || state === 'over')) {
+      e.preventDefault(); startGame();
+    }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+  });
+
+  const toLocalX = clientX => clamp(clientX - wrap.getBoundingClientRect().left, 0, W);
+  cv.addEventListener('pointerdown', e => {
+    pointerDown = true;
+    if (state === 'play') targetX = toLocalX(e.clientX);
+    e.preventDefault();
+  });
+  window.addEventListener('pointermove', e => {
+    if (state !== 'play') return;
+    if (e.pointerType === 'mouse' || pointerDown) targetX = toLocalX(e.clientX);
+  });
+  const endPointer = e => {
+    pointerDown = false;
+    if (e.pointerType !== 'mouse') targetX = null;
+  };
+  window.addEventListener('pointerup', endPointer);
+  window.addEventListener('pointercancel', endPointer);
+
+  $('startBtn').addEventListener('click', e => { e.currentTarget.blur(); startGame(); });
+  $('retryBtn').addEventListener('click', e => { e.currentTarget.blur(); startGame(); });
+
+  window.addEventListener('resize', resize);
+  resize();
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
